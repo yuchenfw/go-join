@@ -60,19 +60,24 @@ type join struct {
 }
 
 func (j *join) Join() (dst string, err error) {
-	rv := reflect.ValueOf(j.src)
-	if rv.Kind() == reflect.Ptr {
-		rv = reflect.Indirect(rv)
-	}
-	switch rv.Kind() {
-	case reflect.String:
-		err = j.parseURLString()
-	case reflect.Struct:
-		err = j.parseStruct(rv)
-	case reflect.Map:
-		err = j.parseMap(rv)
-	default:
-		return "", errors.New(fmt.Sprintf("unsupported type :%s", rv.Type().Name()))
+	values, ok := j.src.(url.Values)
+	if ok {
+		j.parseURLValues(values)
+	} else {
+		rv := reflect.ValueOf(j.src)
+		if rv.Kind() == reflect.Ptr {
+			rv = reflect.Indirect(rv)
+		}
+		switch rv.Kind() {
+		case reflect.String:
+			err = j.parseURLString()
+		case reflect.Struct:
+			err = j.parseStruct(rv)
+		case reflect.Map:
+			err = j.parseMap(rv)
+		default:
+			return "", errors.New(fmt.Sprintf("unsupported type :%s", rv.Type().Name()))
+		}
 	}
 	if err != nil {
 		return "", err
@@ -92,6 +97,12 @@ func (j *join) Join() (dst string, err error) {
 	return strings.Join(list, j.options.Sep), nil
 }
 
+func (j *join) parseURLValues(values url.Values) {
+	for key := range values {
+		j.data[key] = values.Get(key)
+	}
+}
+
 func (j *join) parseURLString() (err error) {
 	str, ok := j.src.(string)
 	if !ok {
@@ -102,9 +113,7 @@ func (j *join) parseURLString() (err error) {
 	if err != nil {
 		return err
 	}
-	for key := range values {
-		j.data[key] = values.Get(key)
-	}
+	j.parseURLValues(values)
 	return
 }
 
@@ -183,7 +192,6 @@ func (j *join) parseValue(key string, rv reflect.Value) (err error) {
 			rv = rv.Index(0)
 		}
 	}
-	//fmt.Println(rv, rv.Type().Kind())
 	switch rv.Kind() {
 	case reflect.Struct:
 		if j.options.Unwrap {
@@ -247,13 +255,11 @@ func (j *join) joinInDefined() ([]string, error) {
 
 func (j *join) getValue(key string) (value string, ignore bool) {
 	temp := j.data[key]
-	if j.options.IgnoreEmpty && value == "" {
+	rv := reflect.ValueOf(temp)
+	if j.options.IgnoreEmpty && rv.IsZero() {
 		return "", true
 	}
-	value, ok := temp.(string)
-	if !ok {
-		return value, false
-	}
+	value = fmt.Sprintf("%v", temp)
 	switch j.options.URLCoding {
 	case None:
 	case Encoding:
